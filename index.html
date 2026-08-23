@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nav2 Map Editor</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b21; --panel2:#1e242c; --line:#2a313b;
+    --text:#e8ebf0; --muted:#9aa4b2; --accent:#84c226; --red:#ef5350; --amber:#f0b429;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+  }
+  header{
+    display:flex; align-items:center; gap:12px; padding:10px 16px;
+    background:linear-gradient(180deg,#1b2129,#12161b); border-bottom:1px solid var(--line);
+  }
+  header .logo{font-weight:800; letter-spacing:.5px; font-size:16px}
+  header .logo b{color:var(--accent)}
+  header .sub{color:var(--muted); font-size:12px}
+  header .spacer{flex:1}
+  a.gh{color:var(--muted); text-decoration:none; font-size:12px; border:1px solid var(--line);
+    padding:5px 10px; border-radius:6px}
+  a.gh:hover{border-color:var(--accent); color:var(--text)}
+
+  main{flex:1; display:flex; min-height:0}
+  .stage{flex:1; position:relative; overflow:hidden; background:
+    repeating-conic-gradient(#101318 0% 25%, #0c0f13 0% 50%) 50%/24px 24px}
+  canvas{position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:crosshair}
+  .hint{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:14px; pointer-events:none; text-align:center; padding:20px}
+  .hud{position:absolute; left:12px; bottom:12px; font-size:12px; color:var(--muted);
+    background:rgba(0,0,0,.5); border:1px solid var(--line); border-radius:6px; padding:6px 10px}
+
+  aside{width:300px; background:var(--panel); border-left:1px solid var(--line);
+    overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:16px}
+  .card{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px}
+  .card h3{margin:0 0 10px; font-size:11px; letter-spacing:1.5px; color:var(--muted); text-transform:uppercase;
+    display:flex; align-items:center; gap:8px}
+  .card h3::before{content:""; width:4px; height:14px; background:var(--accent); border-radius:2px}
+
+  .btnrow{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+  button{font:inherit; font-weight:700; font-size:12px; letter-spacing:.4px; cursor:pointer;
+    border:1px solid var(--line); background:#232a33; color:var(--text); border-radius:6px; padding:8px 10px}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  button.tool.active{background:var(--accent); color:#111; border-color:var(--accent)}
+  button.primary{background:var(--accent); color:#111; border-color:var(--accent)}
+  button.danger:hover{border-color:var(--red); color:var(--red)}
+
+  label.field{display:block; font-size:11px; color:var(--muted); margin-bottom:8px}
+  input[type=text],input[type=number]{width:100%; margin-top:4px; padding:7px 9px; border-radius:6px;
+    border:1px solid var(--line); background:#0e1116; color:var(--text); font:inherit; font-size:13px}
+  input[type=range]{width:100%; accent-color:var(--accent)}
+  .row{display:flex; gap:8px}
+  .row > *{flex:1}
+  .legend{display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:var(--muted)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:14px; height:14px; border:1px solid var(--line); border-radius:3px; display:inline-block}
+  .drop{border:1.5px dashed var(--line); border-radius:8px; padding:16px; text-align:center;
+    color:var(--muted); font-size:12px; cursor:pointer}
+  .drop:hover,.drop.over{border-color:var(--accent); color:var(--text)}
+  .muted{color:var(--muted); font-size:12px; line-height:1.5}
+  .status{font-size:12px; min-height:16px}
+  .status.ok{color:var(--accent)} .status.err{color:var(--red)}
+  kbd{background:#0e1116;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+    padding:1px 5px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">nav2 <b>Map Editor</b></div>
+  <div class="sub">edit occupancy grids in your browser · nothing is uploaded</div>
+  <div class="spacer"></div>
+  <a class="gh" href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="hint" id="hint">Drop a <b>&nbsp;.pgm + .yaml&nbsp;</b> map here, or use “Load map”.<br>Everything runs locally in your browser.</div>
+    <div class="hud" id="hud" style="display:none"></div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <h3>Map</h3>
+      <div class="drop" id="drop">
+        Drop <b>.pgm</b> (+ optional <b>.yaml</b>) or <u>click to browse</u><br>
+        <span class="muted">PGM (P5/P2) &amp; PNG supported</span>
+      </div>
+      <input type="file" id="file" accept=".pgm,.yaml,.yml,.png,.jpg,.jpeg,image/*" multiple hidden />
+      <div class="status" id="loadStatus" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Tool</h3>
+      <div class="btnrow">
+        <button class="tool active" data-tool="pan" id="t_pan">✋ Pan</button>
+        <button class="tool" data-tool="erase">⌫ Erase → free</button>
+        <button class="tool" data-tool="wall">▉ Draw wall</button>
+        <button class="tool" data-tool="unknown">▤ Unknown</button>
+      </div>
+      <label class="field" style="margin-top:12px">Brush <span id="brushVal">4</span> px
+        <input type="range" id="brush" min="1" max="40" value="4" />
+      </label>
+      <div class="btnrow">
+        <button id="undo" disabled>↩ Undo</button>
+        <button id="reset" disabled class="danger">Revert all</button>
+      </div>
+      <div class="legend" style="margin-top:12px">
+        <span><i class="sw" style="background:#fff"></i>free</span>
+        <span><i class="sw" style="background:#000"></i>wall</span>
+        <span><i class="sw" style="background:#cdcdcd"></i>unknown</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Metadata</h3>
+      <label class="field">Resolution (m/px)
+        <input type="number" id="res" step="0.001" value="0.05" />
+      </label>
+      <div class="row">
+        <label class="field">Origin X<input type="number" id="ox" step="0.01" value="0" /></label>
+        <label class="field">Origin Y<input type="number" id="oy" step="0.01" value="0" /></label>
+        <label class="field">Yaw<input type="number" id="oyaw" step="0.01" value="0" /></label>
+      </div>
+      <div class="muted">Preserved from the loaded .yaml; edit if you loaded a bare image.</div>
+    </div>
+
+    <div class="card">
+      <h3>Save</h3>
+      <label class="field">Map name
+        <input type="text" id="name" value="edited_map" />
+      </label>
+      <button class="primary" id="save" disabled style="width:100%">⬇ Download .pgm + .yaml</button>
+      <div class="status" id="saveStatus" style="margin-top:8px"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// nav2 Map Editor — a single-file, dependency-free occupancy-grid editor.
+// Loads a nav2 map (<name>.pgm + <name>.yaml), lets you erase phantom obstacles /
+// draw walls / mark unknown, then downloads the edited .pgm + .yaml. All in-browser.
+// MIT licensed. https://github.com/  (edit the link above)
+// ---------------------------------------------------------------------------
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const stage = document.getElementById("stage");
+const hint = document.getElementById("hint");
+const hud = document.getElementById("hud");
+
+// map state (works directly in PGM pixel space, row 0 = top, so round-trips exactly)
+let W = 0, H = 0;                 // pixel dims
+let pix = null;                   // Uint8Array grayscale (0=wall .. 254=free, 205=unknown)
+let off = null;                   // offscreen canvas (1px per cell) for fast blit
+let meta = { resolution: 0.05, origin: [0, 0, 0], negate: 0, occupied_thresh: 0.65, free_thresh: 0.196 };
+
+// view transform: screen = img*scale + pan  (image pixel coords)
+let scale = 1, panX = 0, panY = 0;
+let tool = "pan", brush = 4;
+
+// undo stack: array of Map(index -> prevValue)
+const undoStack = [];
+let stroke = null, painting = false, panning = false, panStart = null;
+
+const V = { free: 254, wall: 0, unknown: 205 };
+
+// ---- rendering ----
+function resize() {
+  const r = stage.getBoundingClientRect();
+  cv.width = r.width; cv.height = r.height;
+  draw();
+}
+function fitView() {
+  if (!W) return;
+  const r = stage.getBoundingClientRect();
+  scale = Math.min(r.width / W, r.height / H) * 0.92;
+  panX = (r.width - W * scale) / 2;
+  panY = (r.height - H * scale) / 2;
+}
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!off) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, panX, panY, W * scale, H * scale);
+  // border
+  ctx.strokeStyle = "rgba(132,194,38,.5)"; ctx.lineWidth = 1;
+  ctx.strokeRect(panX + .5, panY + .5, W * scale, H * scale);
+}
+
+// ---- map loading ----
+function setMap(newPix, w, h) {
+  pix = newPix; W = w; H = h;
+  off = document.createElement("canvas"); off.width = w; off.height = h;
+  const octx = off.getContext("2d");
+  const img = octx.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const g = pix[i]; const j = i * 4;
+    img.data[j] = img.data[j + 1] = img.data[j + 2] = g; img.data[j + 3] = 255;
+  }
+  octx.putImageData(img, 0, 0);
+  undoStack.length = 0;
+  fitView(); draw();
+  hint.style.display = "none"; hud.style.display = "block";
+  document.getElementById("save").disabled = false;
+  document.getElementById("reset").disabled = false;
+  document.getElementById("undo").disabled = true;
+  updateHud();
+}
+
+// Parse a binary/ASCII PGM (P5/P2). Returns {pix, w, h}.
+function parsePGM(buf) {
+  const bytes = new Uint8Array(buf);
+  let p = 0;
+  const isWS = (c) => c === 32 || c === 9 || c === 10 || c === 13;
+  function token() {
+    while (p < bytes.length) {
+      if (isWS(bytes[p])) { p++; continue; }
+      if (bytes[p] === 35) { while (p < bytes.length && bytes[p] !== 10) p++; continue; } // comment
+      break;
+    }
+    let s = p;
+    while (p < bytes.length && !isWS(bytes[p]) && bytes[p] !== 35) p++;
+    return String.fromCharCode.apply(null, bytes.subarray(s, p));
+  }
+  const magic = token();
+  if (magic !== "P5" && magic !== "P2") throw new Error("Not a P5/P2 PGM");
+  const w = parseInt(token(), 10), h = parseInt(token(), 10), maxv = parseInt(token(), 10);
+  if (!w || !h) throw new Error("Bad PGM header");
+  const out = new Uint8Array(w * h);
+  if (magic === "P5") {
+    p++; // single whitespace after maxval
+    if (maxv < 256) {
+      for (let i = 0; i < w * h; i++) out[i] = bytes[p + i];
+    } else {                             // 16-bit big-endian -> scale to 8-bit
+      for (let i = 0; i < w * h; i++) { const v = (bytes[p + i * 2] << 8) | bytes[p + i * 2 + 1]; out[i] = Math.round(v * 255 / maxv); }
+    }
+  } else {                                // P2 ASCII
+    for (let i = 0; i < w * h; i++) out[i] = Math.round(parseInt(token(), 10) * 255 / maxv);
+  }
+  return { pix: out, w, h };
+}
+
+// Minimal nav2 yaml parser (image, resolution, origin, negate, thresholds).
+function parseYAML(text) {
+  const m = { ...meta };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, "").trim();
+    const kv = line.match(/^([\w]+)\s*:\s*(.+)$/);
+    if (!kv) continue;
+    const k = kv[1], v = kv[2].trim();
+    if (k === "image") m.image = v.replace(/^["']|["']$/g, "");
+    else if (k === "resolution") m.resolution = parseFloat(v);
+    else if (k === "origin") m.origin = v.replace(/[\[\]]/g, "").split(",").map(Number);
+    else if (k === "negate") m.negate = parseInt(v, 10);
+    else if (k === "occupied_thresh") m.occupied_thresh = parseFloat(v);
+    else if (k === "free_thresh") m.free_thresh = parseFloat(v);
+  }
+  return m;
+}
+
+function applyMetaToUI() {
+  document.getElementById("res").value = meta.resolution ?? 0.05;
+  document.getElementById("ox").value = meta.origin?.[0] ?? 0;
+  document.getElementById("oy").value = meta.origin?.[1] ?? 0;
+  document.getElementById("oyaw").value = meta.origin?.[2] ?? 0;
+}
+
+async function loadFiles(files) {
+  const st = document.getElementById("loadStatus");
+  st.className = "status"; st.textContent = "";
+  let yamlText = null, imageFile = null;
+  for (const f of files) {
+    const n = f.name.toLowerCase();
+    if (n.endsWith(".yaml") || n.endsWith(".yml")) yamlText = await f.text();
+    else if (n.endsWith(".pgm") || n.match(/\.(png|jpe?g)$/)) imageFile = f;
+  }
+  try {
+    if (yamlText) { meta = parseYAML(yamlText); applyMetaToUI();
+      if (meta.image && !imageFile) st.textContent = "Loaded .yaml — now add " + meta.image; }
+    if (imageFile) {
+      const nm = imageFile.name.toLowerCase();
+      if (nm.endsWith(".pgm")) {
+        const { pix: px, w, h } = parsePGM(await imageFile.arrayBuffer());
+        setMap(px, w, h);
+      } else {
+        await loadRasterImage(imageFile);       // png/jpg
+      }
+      const base = imageFile.name.replace(/\.[^.]+$/, "");
+      if (!yamlText) document.getElementById("name").value = base + "_edited";
+      else document.getElementById("name").value = base + "_edited";
+      st.className = "status ok"; st.textContent = `Loaded ${imageFile.name} (${W}×${H})`;
+    } else if (!yamlText) {
+      throw new Error("No .pgm / image found");
+    }
+  } catch (e) {
+    st.className = "status err"; st.textContent = "Load failed: " + e.message;
+  }
+}
+
+function loadRasterImage(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
+      const g = c.getContext("2d"); g.drawImage(im, 0, 0);
+      const d = g.getImageData(0, 0, im.width, im.height).data;
+      const out = new Uint8Array(im.width * im.height);
+      for (let i = 0; i < out.length; i++) { // luminance
+        out[i] = Math.round(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
+      }
+      URL.revokeObjectURL(url);
+      setMap(out, im.width, im.height); res();
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("bad image")); };
+    im.src = url;
+  });
+}
+
+// ---- painting ----
+function screenToImg(clientX, clientY) {
+  const r = cv.getBoundingClientRect();
+  const x = (clientX - r.left - panX) / scale;
+  const y = (clientY - r.top - panY) / scale;
+  return { x: Math.floor(x), y: Math.floor(y) };
+}
+function setCell(x, y, val) {
+  if (x < 0 || y < 0 || x >= W || y >= H) return;
+  const idx = y * W + x;
+  if (pix[idx] === val) return;
+  if (stroke && !stroke.has(idx)) stroke.set(idx, pix[idx]);
+  pix[idx] = val;
+  const g = off.getContext("2d");
+  g.fillStyle = `rgb(${val},${val},${val})`;
+  g.fillRect(x, y, 1, 1);
+}
+function paintAt(clientX, clientY) {
+  const { x, y } = screenToImg(clientX, clientY);
+  const val = V[tool]; if (val === undefined) return;
+  const rad = brush - 1;
+  for (let dy = -rad; dy <= rad; dy++)
+    for (let dx = -rad; dx <= rad; dx++)
+      if (dx*dx + dy*dy <= rad*rad) setCell(x + dx, y + dy, val);
+  draw(); updateHud(x, y);
+}
+function undo() {
+  const s = undoStack.pop(); if (!s) return;
+  const g = off.getContext("2d");
+  for (const [idx, prev] of s) {
+    pix[idx] = prev;
+    const x = idx % W, y = (idx / W) | 0;
+    g.fillStyle = `rgb(${prev},${prev},${prev})`; g.fillRect(x, y, 1, 1);
+  }
+  document.getElementById("undo").disabled = undoStack.length === 0;
+  draw();
+}
+
+// ---- export ----
+function download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+function save() {
+  if (!pix) return;
+  const name = (document.getElementById("name").value || "edited_map").replace(/[^\w\-]/g, "_");
+  // PGM (P5, 8-bit) — identical orientation to the input, so it round-trips exactly.
+  const header = new TextEncoder().encode(`P5\n${W} ${H}\n255\n`);
+  const out = new Uint8Array(header.length + pix.length);
+  out.set(header, 0); out.set(pix, header.length);
+  download(new Blob([out], { type: "image/x-portable-graymap" }), name + ".pgm");
+  // YAML
+  const res = parseFloat(document.getElementById("res").value) || 0.05;
+  const ox = parseFloat(document.getElementById("ox").value) || 0;
+  const oy = parseFloat(document.getElementById("oy").value) || 0;
+  const yaw = parseFloat(document.getElementById("oyaw").value) || 0;
+  const occ = meta.occupied_thresh ?? 0.65, free = meta.free_thresh ?? 0.196, neg = meta.negate ?? 0;
+  const yaml =
+    `image: ${name}.pgm\nresolution: ${res}\norigin: [${ox}, ${oy}, ${yaw}]\n` +
+    `negate: ${neg}\noccupied_thresh: ${occ}\nfree_thresh: ${free}\n`;
+  download(new Blob([yaml], { type: "text/yaml" }), name + ".yaml");
+  const ss = document.getElementById("saveStatus");
+  ss.className = "status ok"; ss.textContent = `Saved ${name}.pgm + ${name}.yaml`;
+  setTimeout(() => (ss.textContent = ""), 3000);
+}
+
+function updateHud(x, y) {
+  if (!W) return;
+  let t = `${W}×${H} px · ${(meta.resolution||0.05)} m/px · zoom ${(scale).toFixed(2)}×`;
+  if (x !== undefined) t += ` · cell ${x},${y}`;
+  hud.textContent = t;
+}
+
+// ---- events ----
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll(".tool").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
+  cv.style.cursor = t === "pan" ? "grab" : "crosshair";
+}
+document.querySelectorAll(".tool").forEach((b) => b.addEventListener("click", () => setTool(b.dataset.tool)));
+
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId);
+  const editing = tool !== "pan" && pix;
+  if (e.button === 2 || e.button === 1 || !editing) {   // right/middle or pan tool -> pan
+    panning = true; panStart = { x: e.clientX - panX, y: e.clientY - panY }; cv.style.cursor = "grabbing";
+    return;
+  }
+  painting = true; stroke = new Map(); paintAt(e.clientX, e.clientY);
+});
+cv.addEventListener("pointermove", (e) => {
+  if (panning) { panX = e.clientX - panStart.x; panY = e.clientY - panStart.y; draw(); return; }
+  if (painting) paintAt(e.clientX, e.clientY);
+  else { const { x, y } = screenToImg(e.clientX, e.clientY); updateHud(x, y); }
+});
+function endStroke() {
+  if (panning) { panning = false; cv.style.cursor = tool === "pan" ? "grab" : "crosshair"; }
+  if (painting) {
+    painting = false;
+    if (stroke && stroke.size) { undoStack.push(stroke); document.getElementById("undo").disabled = false; }
+    stroke = null;
+  }
+}
+cv.addEventListener("pointerup", endStroke);
+cv.addEventListener("pointercancel", endStroke);
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (!pix) return;
+  const r = cv.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k = e.deltaY < 0 ? 1.12 : 0.893;
+  const ns = Math.max(0.05, Math.min(60, scale * k));
+  panX = mx - (mx - panX) * (ns / scale);           // zoom to cursor
+  panY = my - (my - panY) * (ns / scale);
+  scale = ns; draw(); updateHud();
+}, { passive: false });
+
+document.getElementById("brush").addEventListener("input", (e) => {
+  brush = +e.target.value; document.getElementById("brushVal").textContent = brush;
+});
+document.getElementById("undo").addEventListener("click", undo);
+document.getElementById("reset").addEventListener("click", () => { if (loadedFiles) loadFiles(loadedFiles); });
+document.getElementById("save").addEventListener("click", save);
+
+window.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) {
+    e.preventDefault(); undo();
+  }
+});
+
+// file input + drag/drop
+let loadedFiles = null;
+const fileInput = document.getElementById("file");
+const drop = document.getElementById("drop");
+drop.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { loadedFiles = [...fileInput.files]; loadFiles(loadedFiles); });
+["dragenter", "dragover"].forEach((ev) => stage.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => stage.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+stage.addEventListener("drop", (e) => { loadedFiles = [...e.dataTransfer.files]; loadFiles(loadedFiles); });
+drop.addEventListener("drop", (e) => { e.preventDefault(); loadedFiles = [...e.dataTransfer.files]; loadFiles(loadedFiles); });
+
+window.addEventListener("resize", resize);
+resize();
+</script>
+</body>
+</html>
