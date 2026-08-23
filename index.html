@@ -26,7 +26,8 @@
   main{flex:1; display:flex; min-height:0}
   .stage{flex:1; position:relative; overflow:hidden; background:
     repeating-conic-gradient(#101318 0% 25%, #0c0f13 0% 50%) 50%/24px 24px}
-  canvas{position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:crosshair}
+  canvas{position:absolute; inset:0; width:100%; height:100%; touch-action:none;
+    cursor:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M12 3v18M3 12h18" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M12 3v18M3 12h18" stroke="black" stroke-width="2" stroke-linecap="round"/></svg>') 12 12, crosshair;}
   .hint{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:var(--muted); font-size:14px; pointer-events:none; text-align:center; padding:20px}
   .hud{position:absolute; left:12px; bottom:12px; font-size:12px; color:var(--muted);
@@ -405,7 +406,7 @@ function selShape(s) {
   shape = s;
   document.querySelectorAll(".shape").forEach((b) => b.classList.toggle("active", b.dataset.shape === s));
   document.getElementById("paintRow").style.display = (s === "brush" || s === "line" || s === "rect") ? "block" : "none";
-  cv.style.cursor = s === "pan" ? "grab" : "crosshair";
+  cv.style.cursor = s === "pan" ? "grab" : "";   // "" -> CSS black crosshair
 }
 document.querySelectorAll(".shape").forEach((b) => b.addEventListener("click", () => selShape(b.dataset.shape)));
 document.querySelectorAll(".paint").forEach((b) => b.addEventListener("click", () => {
@@ -433,7 +434,7 @@ cv.addEventListener("pointermove", (e) => {
   const p = screenToImg(e.clientX, e.clientY); updateHud(p.x, p.y);
 });
 function endPointer() {
-  if (panning) { panning = false; cv.style.cursor = shape === "pan" ? "grab" : "crosshair"; }
+  if (panning) { panning = false; cv.style.cursor = shape === "pan" ? "grab" : ""; }
   if (painting) { painting = false; commitStroke(); }
   if (drawing) {
     drawing = false; const p = preview; preview = null; stroke = new Map(); const val = PV[paint];
