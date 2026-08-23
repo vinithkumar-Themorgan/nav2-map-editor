@@ -172,7 +172,8 @@ let tool = "pan", brush = 4;
 const undoStack = [];
 let stroke = null, painting = false, panning = false, panStart = null;
 
-const V = { free: 254, wall: 0, unknown: 205 };
+// grayscale value each tool paints (keys MUST match the tool buttons' data-tool)
+const V = { erase: 254, wall: 0, unknown: 205 };
 
 // ---- rendering ----
 function resize() {
