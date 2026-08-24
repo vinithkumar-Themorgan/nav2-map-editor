@@ -32,6 +32,10 @@
     color:var(--muted); font-size:14px; pointer-events:none; text-align:center; padding:20px}
   .hud{position:absolute; left:12px; bottom:12px; font-size:12px; color:var(--muted);
     background:rgba(0,0,0,.5); border:1px solid var(--line); border-radius:6px; padding:6px 10px}
+  .zoom{position:absolute; right:12px; bottom:12px; display:flex; flex-direction:column; gap:6px}
+  .zoom button{width:34px; height:34px; padding:0; font-size:18px; line-height:1;
+    background:rgba(16,20,26,.9); border:1px solid var(--line); color:var(--text); border-radius:6px; cursor:pointer}
+  .zoom button:hover{border-color:var(--accent); color:var(--accent)}
 
   aside{width:308px; background:var(--panel); border-left:1px solid var(--line);
     overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:14px}
@@ -40,16 +44,17 @@
     display:flex; align-items:center; gap:8px}
   .card h3::before{content:""; width:4px; height:14px; background:var(--accent); border-radius:2px}
 
-  .grid5{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
+  .grid4{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
   .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:8px}
-  button{font:inherit; font-weight:700; font-size:12px; letter-spacing:.3px; cursor:pointer;
-    border:1px solid var(--line); background:#232a33; color:var(--text); border-radius:6px; padding:8px 6px}
+  button{font:inherit; font-weight:700; font-size:11px; letter-spacing:.2px; cursor:pointer;
+    border:1px solid var(--line); background:#232a33; color:var(--text); border-radius:6px; padding:8px 4px}
   button:hover{border-color:var(--accent)}
   button:disabled{opacity:.4; cursor:not-allowed}
   .shape.active,.paint.active{background:var(--accent); color:#111; border-color:var(--accent)}
   button.primary{background:var(--accent); color:#111; border-color:var(--accent)}
   button.danger:hover{border-color:var(--red); color:var(--red)}
+  .shape small{display:block; font-size:9px; opacity:.6; font-weight:600}
 
   label.field{display:block; font-size:11px; color:var(--muted); margin-bottom:8px}
   input[type=text],input[type=number]{width:100%; margin-top:4px; padding:7px 9px; border-radius:6px;
@@ -67,6 +72,7 @@
   .muted{color:var(--muted); font-size:12px; line-height:1.5}
   .status{font-size:12px; min-height:16px}
   .status.ok{color:var(--accent)} .status.err{color:var(--red)}
+  kbd{background:#0e1116;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:10px}
 </style>
 </head>
 <body>
@@ -82,6 +88,11 @@
     <canvas id="cv"></canvas>
     <div class="hint" id="hint">Drop a <b>&nbsp;.pgm + .yaml&nbsp;</b> map here, or use “Load map”.<br>Everything runs locally in your browser.</div>
     <div class="hud" id="hud" style="display:none"></div>
+    <div class="zoom" id="zoom" style="display:none">
+      <button id="zin" title="Zoom in">+</button>
+      <button id="zout" title="Zoom out">−</button>
+      <button id="zfit" title="Fit" style="font-size:13px">⤢</button>
+    </div>
   </div>
 
   <aside>
@@ -97,12 +108,14 @@
 
     <div class="card">
       <h3>Tool</h3>
-      <div class="grid5">
-        <button class="shape active" data-shape="pan">✋<br>Pan</button>
-        <button class="shape" data-shape="brush">✎<br>Brush</button>
-        <button class="shape" data-shape="line">╱<br>Line</button>
-        <button class="shape" data-shape="rect">▭<br>Rect</button>
-        <button class="shape" data-shape="label">🏷<br>Label</button>
+      <div class="grid4">
+        <button class="shape active" data-shape="pan">✋<small>Pan</small></button>
+        <button class="shape" data-shape="brush">✎<small>Brush</small></button>
+        <button class="shape" data-shape="line">╱<small>Line</small></button>
+        <button class="shape" data-shape="rect">▭<small>Rect</small></button>
+        <button class="shape" data-shape="fill">🪣<small>Fill</small></button>
+        <button class="shape" data-shape="measure">📏<small>Measure</small></button>
+        <button class="shape" data-shape="label">🏷<small>Label</small></button>
       </div>
 
       <div id="paintRow" style="display:none">
@@ -118,9 +131,10 @@
       <label class="field" style="margin-top:12px">Brush / thickness <span id="brushVal">4</span> px
         <input type="range" id="brush" min="1" max="60" value="4" />
       </label>
-      <div class="grid2">
+      <div class="grid3">
         <button id="undo" disabled>↩ Undo</button>
-        <button id="reset" disabled class="danger">Revert all</button>
+        <button id="redo" disabled>↪ Redo</button>
+        <button id="reset" disabled class="danger">Revert</button>
       </div>
       <div class="legend" style="margin-top:12px">
         <span><i class="sw" style="background:#fff"></i>free</span>
@@ -130,17 +144,21 @@
     </div>
 
     <div class="card">
+      <h3>Cleanup</h3>
+      <button id="despeckle" disabled style="width:100%">✨ Remove isolated pixels (despeckle)</button>
+      <div class="muted" style="margin-top:8px">Deletes stray occupied pixels (SLAM salt‑noise) that have ≤1 wall neighbour. Undoable.</div>
+    </div>
+
+    <div class="card">
       <h3>Area labels</h3>
-      <div class="muted">Pick <b>🏷 Label</b>, click the map, type a name. Labels are overlay-only — they never change the map pixels, and export to a sidecar <b>.json</b>. Click a label to delete it.</div>
+      <div class="muted">Pick <b>🏷 Label</b>, click the map, type a name. Labels are overlay‑only — they never change the map pixels, and export to a sidecar <b>.json</b>. Click a label to delete it.</div>
       <div class="status" id="labelCount" style="margin-top:8px"></div>
       <button id="clearLabels" disabled style="width:100%;margin-top:6px">Clear all labels</button>
     </div>
 
     <div class="card">
       <h3>Metadata</h3>
-      <label class="field">Resolution (m/px)
-        <input type="number" id="res" step="0.001" value="0.05" />
-      </label>
+      <label class="field">Resolution (m/px)<input type="number" id="res" step="0.001" value="0.05" /></label>
       <div class="row">
         <label class="field">Origin X<input type="number" id="ox" step="0.01" value="0" /></label>
         <label class="field">Origin Y<input type="number" id="oy" step="0.01" value="0" /></label>
@@ -152,8 +170,22 @@
     <div class="card">
       <h3>Save</h3>
       <label class="field">Map name<input type="text" id="name" value="edited_map" /></label>
-      <button class="primary" id="save" disabled style="width:100%">⬇ Download .pgm + .yaml (+ labels)</button>
+      <div class="grid2">
+        <button class="primary" id="save" disabled>⬇ .pgm + .yaml</button>
+        <button id="savepng" disabled>⬇ PNG preview</button>
+      </div>
       <div class="status" id="saveStatus" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Shortcuts</h3>
+      <div class="muted">
+        <kbd>B</kbd> brush · <kbd>L</kbd> line · <kbd>R</kbd> rect · <kbd>G</kbd> fill ·
+        <kbd>M</kbd> measure · <kbd>T</kbd> label · <kbd>Space</kbd>/<kbd>P</kbd> pan<br>
+        <kbd>E</kbd>/<kbd>W</kbd>/<kbd>U</kbd> paint free/wall/unknown ·
+        <kbd>[</kbd><kbd>]</kbd> brush size · <kbd>Shift</kbd> snap line/square<br>
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Y</kbd> redo · <kbd>F</kbd> fit · <kbd>Esc</kbd> cancel
+      </div>
     </div>
   </aside>
 </main>
@@ -162,17 +194,14 @@
 "use strict";
 // ---------------------------------------------------------------------------
 // nav2 Map Editor — single-file, dependency-free occupancy-grid editor.
-// Tools: Pan / Brush / Line / Rect / Label.  Paint: Free / Wall / Unknown.
-// Area labels are overlay-only (saved to a .json sidecar; the .pgm is untouched).
-// MIT licensed.  https://github.com/  (edit the link in the header)
+// Tools: Pan / Brush / Line / Rect / Fill / Measure / Label.
+// Paint: Free / Wall / Unknown.  Undo+Redo.  Area labels are overlay-only
+// (saved to a .json sidecar; the .pgm is untouched).  MIT licensed.
 // ---------------------------------------------------------------------------
-const cv = document.getElementById("cv");
-const ctx = cv.getContext("2d");
-const stage = document.getElementById("stage");
-const hint = document.getElementById("hint");
-const hud = document.getElementById("hud");
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const stage = document.getElementById("stage"), hint = document.getElementById("hint"), hud = document.getElementById("hud");
 
-// map state — works directly in PGM pixel space (row 0 = top) so it round-trips exactly
+// map state — pixel space (row 0 = top) so it round-trips exactly
 let W = 0, H = 0, pix = null, off = null;
 let meta = { resolution: 0.05, origin: [0, 0, 0], negate: 0, occupied_thresh: 0.65, free_thresh: 0.196 };
 
@@ -180,32 +209,27 @@ let meta = { resolution: 0.05, origin: [0, 0, 0], negate: 0, occupied_thresh: 0.
 let scale = 1, panX = 0, panY = 0;
 
 // tools
-let shape = "pan";          // pan | brush | line | rect | label
-let paint = "erase";        // erase | wall | unknown
-let brush = 4, filled = true;
-const PV = { erase: 254, wall: 0, unknown: 205 };   // grayscale each paint writes
+let shape = "pan", paint = "erase", brush = 4, filled = true;
+const PV = { erase: 254, wall: 0, unknown: 205 };
 
-// interaction / history
-const undoStack = [];
+// interaction / history (entries: [{i,b,a}])
+const undoStack = [], redoStack = [];
 let stroke = null, painting = false, drawing = false, shapeStart = null, preview = null;
-let panning = false, panStart = null;
+let panning = false, panStart = null, measuring = false, measureSeg = null, shiftKey = false;
+let mouse = { sx: 0, sy: 0, inside: false };
+let labels = [];            // {x,y,text} pixel coords
 
-// area labels (overlay only): {x,y,text} in pixel coords
-let labels = [];
-
-// ---- view helpers ----
+// ---- helpers ----
+const curMeta = () => ({
+  res: parseFloat(document.getElementById("res").value) || 0.05,
+  ox: parseFloat(document.getElementById("ox").value) || 0,
+  oy: parseFloat(document.getElementById("oy").value) || 0,
+});
 function img2screen(x, y) { return { x: panX + (x + 0.5) * scale, y: panY + (y + 0.5) * scale }; }
-function screenToImg(clientX, clientY) {
-  const r = cv.getBoundingClientRect();
-  return { x: Math.floor((clientX - r.left - panX) / scale), y: Math.floor((clientY - r.top - panY) / scale) };
-}
+function screenToImg(cx, cy) { const r = cv.getBoundingClientRect(); return { x: Math.floor((cx - r.left - panX) / scale), y: Math.floor((cy - r.top - panY) / scale) }; }
+const usesRing = () => shape === "brush" || shape === "line" || shape === "rect";
 function resize() { const r = stage.getBoundingClientRect(); cv.width = r.width; cv.height = r.height; draw(); }
-function fitView() {
-  if (!W) return;
-  const r = stage.getBoundingClientRect();
-  scale = Math.min(r.width / W, r.height / H) * 0.92;
-  panX = (r.width - W * scale) / 2; panY = (r.height - H * scale) / 2;
-}
+function fitView() { if (!W) return; const r = stage.getBoundingClientRect(); scale = Math.min(r.width / W, r.height / H) * 0.92; panX = (r.width - W * scale) / 2; panY = (r.height - H * scale) / 2; }
 
 // ---- render ----
 function draw() {
@@ -216,15 +240,24 @@ function draw() {
     ctx.strokeStyle = "rgba(132,194,38,.5)"; ctx.lineWidth = 1;
     ctx.strokeRect(panX + .5, panY + .5, W * scale, H * scale);
   }
-  // preview of the in-progress line / rectangle
-  if (preview) {
+  if (preview) {                                   // in-progress line / rect
     const a = img2screen(preview.x0, preview.y0), b = img2screen(preview.x1, preview.y1);
     ctx.save(); ctx.strokeStyle = "rgba(132,194,38,.95)"; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
     if (preview.shape === "line") { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
     else ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     ctx.restore();
   }
-  // area labels (overlay)
+  if (measureSeg) drawMeasure();
+  drawLabels();
+  if (usesRing() && mouse.inside && !panning) {    // brush footprint ring
+    const rad = Math.max(3, brush * scale);
+    ctx.save(); ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#000"; ctx.beginPath(); ctx.arc(mouse.sx, mouse.sy, rad, 0, 6.29); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.beginPath(); ctx.arc(mouse.sx, mouse.sy, rad + 1.2, 0, 6.29); ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawLabels() {
   ctx.textBaseline = "bottom"; ctx.textAlign = "left"; ctx.font = "bold 12px 'Segoe UI',sans-serif";
   for (const l of labels) {
     const s = img2screen(l.x, l.y);
@@ -235,6 +268,20 @@ function draw() {
     ctx.fillStyle = "#fff"; ctx.fillText(l.text, s.x + 11, s.y - 4);
   }
 }
+function drawMeasure() {
+  const { res } = curMeta();
+  const a = img2screen(measureSeg.x0, measureSeg.y0), b = img2screen(measureSeg.x1, measureSeg.y1);
+  ctx.save(); ctx.strokeStyle = "#f0b429"; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  for (const p of [a, b]) { ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, 6.29); ctx.fillStyle = "#f0b429"; ctx.fill(); }
+  const dpx = Math.hypot(measureSeg.x1 - measureSeg.x0, measureSeg.y1 - measureSeg.y0);
+  const txt = `${(dpx * res).toFixed(3)} m  (${Math.round(dpx)} px)`;
+  ctx.font = "bold 12px 'Segoe UI',sans-serif"; const w = ctx.measureText(txt).width;
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  ctx.fillStyle = "rgba(8,10,14,.85)"; ctx.fillRect(mx - w / 2 - 5, my - 20, w + 10, 17);
+  ctx.fillStyle = "#f0b429"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(txt, mx, my - 11);
+  ctx.restore();
+}
 
 // ---- map load ----
 function setMap(newPix, w, h) {
@@ -243,221 +290,184 @@ function setMap(newPix, w, h) {
   const octx = off.getContext("2d"), img = octx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) { const g = pix[i], j = i * 4; img.data[j] = img.data[j + 1] = img.data[j + 2] = g; img.data[j + 3] = 255; }
   octx.putImageData(img, 0, 0);
-  undoStack.length = 0;
+  undoStack.length = 0; redoStack.length = 0; measureSeg = null;
   fitView(); draw();
-  hint.style.display = "none"; hud.style.display = "block";
-  document.getElementById("save").disabled = false;
-  document.getElementById("reset").disabled = false;
-  document.getElementById("undo").disabled = true;
-  updateHud();
+  hint.style.display = "none"; hud.style.display = "block"; document.getElementById("zoom").style.display = "flex";
+  ["save", "savepng", "reset", "despeckle"].forEach((id) => document.getElementById(id).disabled = false);
+  histButtons(); updateHud();
 }
-
 function parsePGM(buf) {
   const b = new Uint8Array(buf); let p = 0;
   const ws = (c) => c === 32 || c === 9 || c === 10 || c === 13;
-  function tok() {
-    while (p < b.length) { if (ws(b[p])) { p++; continue; } if (b[p] === 35) { while (p < b.length && b[p] !== 10) p++; continue; } break; }
-    let s = p; while (p < b.length && !ws(b[p]) && b[p] !== 35) p++; return String.fromCharCode.apply(null, b.subarray(s, p));
-  }
+  function tok() { while (p < b.length) { if (ws(b[p])) { p++; continue; } if (b[p] === 35) { while (p < b.length && b[p] !== 10) p++; continue; } break; } let s = p; while (p < b.length && !ws(b[p]) && b[p] !== 35) p++; return String.fromCharCode.apply(null, b.subarray(s, p)); }
   const magic = tok(); if (magic !== "P5" && magic !== "P2") throw new Error("Not a P5/P2 PGM");
   const w = +tok(), h = +tok(), mx = +tok(); if (!w || !h) throw new Error("Bad PGM header");
   const out = new Uint8Array(w * h);
-  if (magic === "P5") {
-    p++;
-    if (mx < 256) for (let i = 0; i < w * h; i++) out[i] = b[p + i];
-    else for (let i = 0; i < w * h; i++) out[i] = Math.round(((b[p + i * 2] << 8) | b[p + i * 2 + 1]) * 255 / mx);
-  } else for (let i = 0; i < w * h; i++) out[i] = Math.round(+tok() * 255 / mx);
+  if (magic === "P5") { p++; if (mx < 256) for (let i = 0; i < w * h; i++) out[i] = b[p + i]; else for (let i = 0; i < w * h; i++) out[i] = Math.round(((b[p + i * 2] << 8) | b[p + i * 2 + 1]) * 255 / mx); }
+  else for (let i = 0; i < w * h; i++) out[i] = Math.round(+tok() * 255 / mx);
   return { pix: out, w, h };
 }
 function parseYAML(text) {
   const m = { ...meta };
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/#.*/, "").trim(); const kv = line.match(/^(\w+)\s*:\s*(.+)$/); if (!kv) continue;
-    const k = kv[1], v = kv[2].trim();
-    if (k === "image") m.image = v.replace(/^["']|["']$/g, "");
-    else if (k === "resolution") m.resolution = parseFloat(v);
-    else if (k === "origin") m.origin = v.replace(/[\[\]]/g, "").split(",").map(Number);
-    else if (k === "negate") m.negate = parseInt(v, 10);
-    else if (k === "occupied_thresh") m.occupied_thresh = parseFloat(v);
-    else if (k === "free_thresh") m.free_thresh = parseFloat(v);
-  }
+  for (const raw of text.split(/\r?\n/)) { const line = raw.replace(/#.*/, "").trim(); const kv = line.match(/^(\w+)\s*:\s*(.+)$/); if (!kv) continue; const k = kv[1], v = kv[2].trim();
+    if (k === "image") m.image = v.replace(/^["']|["']$/g, ""); else if (k === "resolution") m.resolution = parseFloat(v); else if (k === "origin") m.origin = v.replace(/[\[\]]/g, "").split(",").map(Number); else if (k === "negate") m.negate = parseInt(v, 10); else if (k === "occupied_thresh") m.occupied_thresh = parseFloat(v); else if (k === "free_thresh") m.free_thresh = parseFloat(v); }
   return m;
 }
-function applyMetaToUI() {
-  document.getElementById("res").value = meta.resolution ?? 0.05;
-  document.getElementById("ox").value = meta.origin?.[0] ?? 0;
-  document.getElementById("oy").value = meta.origin?.[1] ?? 0;
-  document.getElementById("oyaw").value = meta.origin?.[2] ?? 0;
-}
+function applyMetaToUI() { document.getElementById("res").value = meta.resolution ?? 0.05; document.getElementById("ox").value = meta.origin?.[0] ?? 0; document.getElementById("oy").value = meta.origin?.[1] ?? 0; document.getElementById("oyaw").value = meta.origin?.[2] ?? 0; }
 function loadRaster(file) {
-  return new Promise((res, rej) => {
-    const url = URL.createObjectURL(file), im = new Image();
-    im.onload = () => {
-      const c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
-      const g = c.getContext("2d"); g.drawImage(im, 0, 0);
-      const d = g.getImageData(0, 0, im.width, im.height).data, out = new Uint8Array(im.width * im.height);
-      for (let i = 0; i < out.length; i++) out[i] = Math.round(.299 * d[i*4] + .587 * d[i*4+1] + .114 * d[i*4+2]);
-      URL.revokeObjectURL(url); setMap(out, im.width, im.height); res();
-    };
-    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("bad image")); }; im.src = url;
-  });
+  return new Promise((res, rej) => { const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => { const c = document.createElement("canvas"); c.width = im.width; c.height = im.height; const g = c.getContext("2d"); g.drawImage(im, 0, 0); const d = g.getImageData(0, 0, im.width, im.height).data, out = new Uint8Array(im.width * im.height); for (let i = 0; i < out.length; i++) out[i] = Math.round(.299 * d[i*4] + .587 * d[i*4+1] + .114 * d[i*4+2]); URL.revokeObjectURL(url); setMap(out, im.width, im.height); res(); };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("bad image")); }; im.src = url; });
 }
 async function loadFiles(files) {
   const st = document.getElementById("loadStatus"); st.className = "status"; st.textContent = "";
   let yamlText = null, imageFile = null, jsonText = null;
-  for (const f of files) {
-    const n = f.name.toLowerCase();
-    if (n.endsWith(".yaml") || n.endsWith(".yml")) yamlText = await f.text();
-    else if (n.endsWith(".json")) jsonText = await f.text();
-    else if (n.endsWith(".pgm") || n.match(/\.(png|jpe?g)$/)) imageFile = f;
-  }
+  for (const f of files) { const n = f.name.toLowerCase(); if (n.endsWith(".yaml") || n.endsWith(".yml")) yamlText = await f.text(); else if (n.endsWith(".json")) jsonText = await f.text(); else if (n.endsWith(".pgm") || n.match(/\.(png|jpe?g)$/)) imageFile = f; }
   try {
     if (yamlText) { meta = parseYAML(yamlText); applyMetaToUI(); if (meta.image && !imageFile) st.textContent = "Loaded .yaml — now add " + meta.image; }
-    if (imageFile) {
-      labels = [];                                    // fresh map -> drop old overlay labels
-      if (imageFile.name.toLowerCase().endsWith(".pgm")) { const r = parsePGM(await imageFile.arrayBuffer()); setMap(r.pix, r.w, r.h); }
-      else await loadRaster(imageFile);
-      document.getElementById("name").value = imageFile.name.replace(/\.[^.]+$/, "") + "_edited";
-      st.className = "status ok"; st.textContent = `Loaded ${imageFile.name} (${W}×${H})`;
-    }
-    if (jsonText) {                                   // re-load previously saved area labels
-      try { const a = JSON.parse(jsonText); if (Array.isArray(a.labels)) labels = a.labels.map((l) => ({ x: l.pixel?.[0] ?? 0, y: l.pixel?.[1] ?? 0, text: l.name || "" })); } catch (e) {}
-    }
+    if (imageFile) { labels = []; if (imageFile.name.toLowerCase().endsWith(".pgm")) { const r = parsePGM(await imageFile.arrayBuffer()); setMap(r.pix, r.w, r.h); } else await loadRaster(imageFile); document.getElementById("name").value = imageFile.name.replace(/\.[^.]+$/, "") + "_edited"; st.className = "status ok"; st.textContent = `Loaded ${imageFile.name} (${W}×${H})`; }
+    if (jsonText) { try { const a = JSON.parse(jsonText); if (Array.isArray(a.labels)) labels = a.labels.map((l) => ({ x: l.pixel?.[0] ?? 0, y: l.pixel?.[1] ?? 0, text: l.name || "" })); } catch (e) {} }
     if (!imageFile && !yamlText && !jsonText) throw new Error("No .pgm / image found");
     updateLabels(); draw();
   } catch (e) { st.className = "status err"; st.textContent = "Load failed: " + e.message; }
 }
 
-// ---- rasterizers (all funnel through setCell so undo works) ----
-function setCell(x, y, val) {
-  if (x < 0 || y < 0 || x >= W || y >= H) return;
-  const idx = y * W + x; if (pix[idx] === val) return;
-  if (stroke && !stroke.has(idx)) stroke.set(idx, pix[idx]);
-  pix[idx] = val; const g = off.getContext("2d"); g.fillStyle = `rgb(${val},${val},${val})`; g.fillRect(x, y, 1, 1);
+// ---- edit + history ----
+function setCell(x, y, val) { if (x < 0 || y < 0 || x >= W || y >= H) return; const idx = y * W + x; if (pix[idx] === val) return; if (stroke && !stroke.has(idx)) stroke.set(idx, pix[idx]); pix[idx] = val; const g = off.getContext("2d"); g.fillStyle = `rgb(${val},${val},${val})`; g.fillRect(x, y, 1, 1); }
+function stampDisc(cx, cy, val, rad) { for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) if (dx*dx + dy*dy <= rad*rad) setCell(cx + dx, cy + dy, val); }
+function rasterLine(x0, y0, x1, y1, val, thick) { const rad = Math.max(0, thick - 1), dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let err = dx - dy, x = x0, y = y0; for (;;) { stampDisc(x, y, val, rad); if (x === x1 && y === y1) break; const e2 = 2 * err; if (e2 > -dy) { err -= dy; x += sx; } if (e2 < dx) { err += dx; y += sy; } } }
+function rasterRect(x0, y0, x1, y1, val, thick, fill) { const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1); if (fill) { for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) setCell(x, y, val); return; } const t = Math.max(1, thick); for (let i = 0; i < t; i++) { for (let x = ax; x <= bx; x++) { setCell(x, ay + i, val); setCell(x, by - i, val); } for (let y = ay; y <= by; y++) { setCell(ax + i, y, val); setCell(bx - i, y, val); } } }
+// class of a grayscale value: nearest of wall(0)/unknown(205)/free(254)
+function classOf(v) { const d = [[Math.abs(v - 0), 0], [Math.abs(v - 205), 205], [Math.abs(v - 254), 254]]; d.sort((a, b) => a[0] - b[0]); return d[0][1]; }
+function floodFill(sx, sy) {
+  if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
+  const target = PV[paint], startClass = classOf(pix[sy * W + sx]);
+  if (classOf(target) === startClass) return;               // nothing to change
+  stroke = new Map();
+  const st = [[sx, sy]], seen = new Uint8Array(W * H);
+  while (st.length) { const [x, y] = st.pop(); if (x < 0 || y < 0 || x >= W || y >= H) continue; const idx = y * W + x; if (seen[idx] || classOf(pix[idx]) !== startClass) continue; seen[idx] = 1; setCell(x, y, target); st.push([x+1, y], [x-1, y], [x, y+1], [x, y-1]); }
+  commitStroke(); draw();
 }
-function stampDisc(cx, cy, val, rad) {
-  for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) if (dx*dx + dy*dy <= rad*rad) setCell(cx + dx, cy + dy, val);
+function despeckle() {
+  stroke = new Map(); let removed = 0;
+  const snap = Uint8Array.from(pix);                         // read from a snapshot, write to pix
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (classOf(snap[y * W + x]) !== 0) continue;            // only wall pixels
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; if (classOf(snap[ny * W + nx]) === 0) n++; }
+    if (n <= 1) { setCell(x, y, 254); removed++; }
+  }
+  commitStroke(); draw();
+  const ss = document.getElementById("saveStatus"); ss.className = "status ok"; ss.textContent = `Despeckle: removed ${removed} stray pixel${removed === 1 ? "" : "s"}`; setTimeout(() => (ss.textContent = ""), 3000);
 }
-function rasterLine(x0, y0, x1, y1, val, thick) {
-  const rad = Math.max(0, thick - 1), dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-  let err = dx - dy, x = x0, y = y0;
-  for (;;) { stampDisc(x, y, val, rad); if (x === x1 && y === y1) break; const e2 = 2 * err; if (e2 > -dy) { err -= dy; x += sx; } if (e2 < dx) { err += dx; y += sy; } }
-}
-function rasterRect(x0, y0, x1, y1, val, thick, fill) {
-  const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
-  if (fill) { for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) setCell(x, y, val); return; }
-  const t = Math.max(1, thick);
-  for (let i = 0; i < t; i++) { for (let x = ax; x <= bx; x++) { setCell(x, ay + i, val); setCell(x, by - i, val); } for (let y = ay; y <= by; y++) { setCell(ax + i, y, val); setCell(bx - i, y, val); } }
-}
-function commitStroke() { if (stroke && stroke.size) { undoStack.push(stroke); document.getElementById("undo").disabled = false; } stroke = null; }
-function undo() {
-  const s = undoStack.pop(); if (!s) return; const g = off.getContext("2d");
-  for (const [idx, prev] of s) { pix[idx] = prev; const x = idx % W, y = (idx / W) | 0; g.fillStyle = `rgb(${prev},${prev},${prev})`; g.fillRect(x, y, 1, 1); }
-  document.getElementById("undo").disabled = undoStack.length === 0; draw();
-}
+function commitStroke() { if (stroke && stroke.size) { const entry = []; for (const [i, b] of stroke) entry.push({ i, b, a: pix[i] }); undoStack.push(entry); redoStack.length = 0; } stroke = null; histButtons(); }
+function applyEntry(entry, key) { const g = off.getContext("2d"); for (const e of entry) { const v = e[key]; pix[e.i] = v; const x = e.i % W, y = (e.i / W) | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 1, 1); } }
+function undo() { const e = undoStack.pop(); if (!e) return; applyEntry(e, "b"); redoStack.push(e); histButtons(); draw(); }
+function redo() { const e = redoStack.pop(); if (!e) return; applyEntry(e, "a"); undoStack.push(e); histButtons(); draw(); }
+function histButtons() { document.getElementById("undo").disabled = !undoStack.length; document.getElementById("redo").disabled = !redoStack.length; }
 
 // ---- labels ----
-function updateLabels() {
-  const c = document.getElementById("labelCount");
-  c.textContent = labels.length ? `${labels.length} label${labels.length > 1 ? "s" : ""}` : "No labels yet";
-  document.getElementById("clearLabels").disabled = !labels.length;
-}
-function labelAt(clientX, clientY) {
-  const r = cv.getBoundingClientRect(), mx = clientX - r.left, my = clientY - r.top;
-  for (let i = labels.length - 1; i >= 0; i--) { const s = img2screen(labels[i].x, labels[i].y); if (Math.hypot(s.x - mx, s.y - my) < 16) return i; }
-  return -1;
-}
-function handleLabel(clientX, clientY) {
-  const hit = labelAt(clientX, clientY);
-  if (hit >= 0) { if (confirm(`Delete label "${labels[hit].text}"?`)) { labels.splice(hit, 1); updateLabels(); draw(); } return; }
-  const name = prompt("Area name:"); if (name && name.trim()) { const p = screenToImg(clientX, clientY); labels.push({ x: p.x, y: p.y, text: name.trim() }); updateLabels(); draw(); }
-}
+function updateLabels() { const c = document.getElementById("labelCount"); c.textContent = labels.length ? `${labels.length} label${labels.length > 1 ? "s" : ""}` : "No labels yet"; document.getElementById("clearLabels").disabled = !labels.length; }
+function labelAt(cx, cy) { const r = cv.getBoundingClientRect(), mx = cx - r.left, my = cy - r.top; for (let i = labels.length - 1; i >= 0; i--) { const s = img2screen(labels[i].x, labels[i].y); if (Math.hypot(s.x - mx, s.y - my) < 16) return i; } return -1; }
+function handleLabel(cx, cy) { const hit = labelAt(cx, cy); if (hit >= 0) { if (confirm(`Delete label "${labels[hit].text}"?`)) { labels.splice(hit, 1); updateLabels(); draw(); } return; } const name = prompt("Area name:"); if (name && name.trim()) { const p = screenToImg(cx, cy); labels.push({ x: p.x, y: p.y, text: name.trim() }); updateLabels(); draw(); } }
 
 // ---- export ----
-function download(blob, filename) {
-  const url = URL.createObjectURL(blob), a = document.createElement("a"); a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
+function download(blob, filename) { const url = URL.createObjectURL(blob), a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1500); }
+function mapName() { return (document.getElementById("name").value || "edited_map").replace(/[^\w\-]/g, "_"); }
 function save() {
-  if (!pix) return;
-  const name = (document.getElementById("name").value || "edited_map").replace(/[^\w\-]/g, "_");
-  const header = new TextEncoder().encode(`P5\n${W} ${H}\n255\n`);
-  const out = new Uint8Array(header.length + pix.length); out.set(header, 0); out.set(pix, header.length);
+  if (!pix) return; const name = mapName();
+  const header = new TextEncoder().encode(`P5\n${W} ${H}\n255\n`); const out = new Uint8Array(header.length + pix.length); out.set(header, 0); out.set(pix, header.length);
   download(new Blob([out], { type: "image/x-portable-graymap" }), name + ".pgm");
-  const res = parseFloat(document.getElementById("res").value) || 0.05;
-  const ox = parseFloat(document.getElementById("ox").value) || 0;
-  const oy = parseFloat(document.getElementById("oy").value) || 0;
-  const yaw = parseFloat(document.getElementById("oyaw").value) || 0;
+  const { res, ox, oy } = curMeta(); const yaw = parseFloat(document.getElementById("oyaw").value) || 0;
   const occ = meta.occupied_thresh ?? 0.65, free = meta.free_thresh ?? 0.196, neg = meta.negate ?? 0;
   download(new Blob([`image: ${name}.pgm\nresolution: ${res}\norigin: [${ox}, ${oy}, ${yaw}]\nnegate: ${neg}\noccupied_thresh: ${occ}\nfree_thresh: ${free}\n`], { type: "text/yaml" }), name + ".yaml");
   let extra = "";
-  if (labels.length) {
-    const ann = { map: name + ".pgm", resolution: res, origin: [ox, oy, yaw],
-      labels: labels.map((l) => ({ name: l.text, pixel: [l.x, l.y], world: [ +(ox + l.x * res).toFixed(3), +(oy + (H - 1 - l.y) * res).toFixed(3) ] })) };
-    download(new Blob([JSON.stringify(ann, null, 2)], { type: "application/json" }), name + ".annotations.json");
-    extra = " + " + labels.length + " labels";
-  }
+  if (labels.length) { const ann = { map: name + ".pgm", resolution: res, origin: [ox, oy, yaw], labels: labels.map((l) => ({ name: l.text, pixel: [l.x, l.y], world: [ +(ox + l.x * res).toFixed(3), +(oy + (H - 1 - l.y) * res).toFixed(3) ] })) }; download(new Blob([JSON.stringify(ann, null, 2)], { type: "application/json" }), name + ".annotations.json"); extra = " + " + labels.length + " labels"; }
   const ss = document.getElementById("saveStatus"); ss.className = "status ok"; ss.textContent = `Saved ${name}.pgm + .yaml${extra}`; setTimeout(() => (ss.textContent = ""), 3500);
 }
-function updateHud(x, y) { if (!W) return; let t = `${W}×${H} px · ${meta.resolution || 0.05} m/px · zoom ${scale.toFixed(2)}×`; if (x !== undefined) t += ` · cell ${x},${y}`; hud.textContent = t; }
+function savePng() { if (!off) return; off.toBlob((b) => b && download(b, mapName() + ".png"), "image/png"); }
+function updateHud(x, y) { if (!W) return; let t = `${W}×${H} px · ${(meta.resolution || 0.05)} m/px · zoom ${scale.toFixed(2)}×`; if (x !== undefined && x >= 0 && x < W && y >= 0 && y < H) { const { res, ox, oy } = curMeta(); t += ` · cell ${x},${y} · world ${(ox + x * res).toFixed(2)}, ${(oy + (H - 1 - y) * res).toFixed(2)} m`; } hud.textContent = t; }
 
 // ---- tool selection ----
 function selShape(s) {
-  shape = s;
+  shape = s; measureSeg = measureSeg && s === "measure" ? measureSeg : (s === "measure" ? measureSeg : null);
   document.querySelectorAll(".shape").forEach((b) => b.classList.toggle("active", b.dataset.shape === s));
-  document.getElementById("paintRow").style.display = (s === "brush" || s === "line" || s === "rect") ? "block" : "none";
-  cv.style.cursor = s === "pan" ? "grab" : "";   // "" -> CSS black crosshair
+  document.getElementById("paintRow").style.display = ["brush", "line", "rect", "fill"].includes(s) ? "block" : "none";
+  cv.style.cursor = s === "pan" ? "grab" : (usesRing() ? "none" : "");
+  draw();
 }
 document.querySelectorAll(".shape").forEach((b) => b.addEventListener("click", () => selShape(b.dataset.shape)));
-document.querySelectorAll(".paint").forEach((b) => b.addEventListener("click", () => {
-  paint = b.dataset.paint; document.querySelectorAll(".paint").forEach((x) => x.classList.toggle("active", x === b));
-}));
+function selPaint(p) { paint = p; document.querySelectorAll(".paint").forEach((x) => x.classList.toggle("active", x.dataset.paint === p)); }
+document.querySelectorAll(".paint").forEach((b) => b.addEventListener("click", () => selPaint(b.dataset.paint)));
 document.getElementById("filled").addEventListener("change", (e) => (filled = e.target.checked));
 
-// ---- pointer / paint interaction ----
+// ---- shift-snap for line / rect ----
+function snap(x0, y0, x1, y1, square) { let dx = x1 - x0, dy = y1 - y0; if (square) { const d = Math.max(Math.abs(dx), Math.abs(dy)); return { x: x0 + Math.sign(dx || 1) * d, y: y0 + Math.sign(dy || 1) * d }; } if (Math.abs(dx) > 2 * Math.abs(dy)) return { x: x1, y: y0 }; if (Math.abs(dy) > 2 * Math.abs(dx)) return { x: x0, y: y1 }; const d = Math.min(Math.abs(dx), Math.abs(dy)); return { x: x0 + Math.sign(dx || 1) * d, y: y0 + Math.sign(dy || 1) * d }; }
+
+// ---- pointer ----
 cv.addEventListener("pointerdown", (e) => {
   cv.setPointerCapture(e.pointerId);
-  const canEdit = pix && shape !== "pan";
-  if (e.button === 2 || e.button === 1 || shape === "pan" || !canEdit && shape !== "label") {   // pan
-    panning = true; panStart = { x: e.clientX - panX, y: e.clientY - panY }; cv.style.cursor = "grabbing"; return;
-  }
+  if (e.button === 2 || e.button === 1 || shape === "pan") { panning = true; panStart = { x: e.clientX - panX, y: e.clientY - panY }; cv.style.cursor = "grabbing"; return; }
   if (!pix) return;
-  if (shape === "label") { handleLabel(e.clientX, e.clientY); return; }
-  if (shape === "brush") { painting = true; stroke = new Map(); stampDisc(...Object.values(screenToImg(e.clientX, e.clientY)), PV[paint], brush - 1); draw(); return; }
-  // line / rect: start a shape
+  if (shape === "label") return handleLabel(e.clientX, e.clientY);
+  if (shape === "fill") { const p = screenToImg(e.clientX, e.clientY); return floodFill(p.x, p.y); }
+  if (shape === "measure") { const p = screenToImg(e.clientX, e.clientY); measuring = true; measureSeg = { x0: p.x, y0: p.y, x1: p.x, y1: p.y }; draw(); return; }
+  if (shape === "brush") { painting = true; stroke = new Map(); const p = screenToImg(e.clientX, e.clientY); stampDisc(p.x, p.y, PV[paint], brush - 1); draw(); return; }
   const p = screenToImg(e.clientX, e.clientY); drawing = true; shapeStart = p; preview = { shape, x0: p.x, y0: p.y, x1: p.x, y1: p.y }; draw();
 });
 cv.addEventListener("pointermove", (e) => {
+  const r = cv.getBoundingClientRect(); mouse = { sx: e.clientX - r.left, sy: e.clientY - r.top, inside: true };
+  const p = screenToImg(e.clientX, e.clientY);
   if (panning) { panX = e.clientX - panStart.x; panY = e.clientY - panStart.y; draw(); return; }
-  if (painting) { const p = screenToImg(e.clientX, e.clientY); stampDisc(p.x, p.y, PV[paint], brush - 1); draw(); updateHud(p.x, p.y); return; }
-  if (drawing) { const p = screenToImg(e.clientX, e.clientY); preview = { shape, x0: shapeStart.x, y0: shapeStart.y, x1: p.x, y1: p.y }; draw(); updateHud(p.x, p.y); return; }
-  const p = screenToImg(e.clientX, e.clientY); updateHud(p.x, p.y);
+  if (painting) { stampDisc(p.x, p.y, PV[paint], brush - 1); draw(); updateHud(p.x, p.y); return; }
+  if (measuring) { measureSeg.x1 = p.x; measureSeg.y1 = p.y; draw(); updateHud(p.x, p.y); return; }
+  if (drawing) { let end = { x: p.x, y: p.y }; if (shiftKey) end = snap(shapeStart.x, shapeStart.y, p.x, p.y, shape === "rect"); preview = { shape, x0: shapeStart.x, y0: shapeStart.y, x1: end.x, y1: end.y }; draw(); updateHud(p.x, p.y); return; }
+  draw(); updateHud(p.x, p.y);
 });
+cv.addEventListener("pointerleave", () => { mouse.inside = false; draw(); });
 function endPointer() {
-  if (panning) { panning = false; cv.style.cursor = shape === "pan" ? "grab" : ""; }
+  if (panning) { panning = false; cv.style.cursor = shape === "pan" ? "grab" : (usesRing() ? "none" : ""); }
   if (painting) { painting = false; commitStroke(); }
-  if (drawing) {
-    drawing = false; const p = preview; preview = null; stroke = new Map(); const val = PV[paint];
-    if (p) { if (p.shape === "line") rasterLine(p.x0, p.y0, p.x1, p.y1, val, brush); else rasterRect(p.x0, p.y0, p.x1, p.y1, val, brush, filled); }
-    commitStroke(); draw();
-  }
+  if (measuring) measuring = false;
+  if (drawing) { drawing = false; const p = preview; preview = null; stroke = new Map(); const val = PV[paint]; if (p) { if (p.shape === "line") rasterLine(p.x0, p.y0, p.x1, p.y1, val, brush); else rasterRect(p.x0, p.y0, p.x1, p.y1, val, brush, filled); } commitStroke(); draw(); }
 }
 cv.addEventListener("pointerup", endPointer);
 cv.addEventListener("pointercancel", endPointer);
 cv.addEventListener("contextmenu", (e) => e.preventDefault());
-cv.addEventListener("wheel", (e) => {
-  e.preventDefault(); if (!pix) return;
-  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, k = e.deltaY < 0 ? 1.12 : 0.893, ns = Math.max(0.05, Math.min(80, scale * k));
-  panX = mx - (mx - panX) * (ns / scale); panY = my - (my - panY) * (ns / scale); scale = ns; draw(); updateHud();
-}, { passive: false });
+function zoomAt(mx, my, k) { const ns = Math.max(0.05, Math.min(80, scale * k)); panX = mx - (mx - panX) * (ns / scale); panY = my - (my - panY) * (ns / scale); scale = ns; draw(); updateHud(); }
+cv.addEventListener("wheel", (e) => { e.preventDefault(); if (!pix) return; const r = cv.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 0.893); }, { passive: false });
 
 // ---- controls ----
-document.getElementById("brush").addEventListener("input", (e) => { brush = +e.target.value; document.getElementById("brushVal").textContent = brush; });
+document.getElementById("brush").addEventListener("input", (e) => { brush = +e.target.value; document.getElementById("brushVal").textContent = brush; if (mouse.inside) draw(); });
 document.getElementById("undo").addEventListener("click", undo);
+document.getElementById("redo").addEventListener("click", redo);
 document.getElementById("reset").addEventListener("click", () => { if (loadedFiles) loadFiles(loadedFiles); });
+document.getElementById("despeckle").addEventListener("click", () => { if (pix) despeckle(); });
 document.getElementById("clearLabels").addEventListener("click", () => { if (labels.length && confirm("Remove all area labels?")) { labels = []; updateLabels(); draw(); } });
 document.getElementById("save").addEventListener("click", save);
-window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) { e.preventDefault(); undo(); } });
+document.getElementById("savepng").addEventListener("click", savePng);
+document.getElementById("zin").addEventListener("click", () => zoomAt(cv.width / 2, cv.height / 2, 1.25));
+document.getElementById("zout").addEventListener("click", () => zoomAt(cv.width / 2, cv.height / 2, 0.8));
+document.getElementById("zfit").addEventListener("click", () => { fitView(); draw(); updateHud(); });
+
+const KEYMAP = { p: "pan", " ": "pan", b: "brush", l: "line", r: "rect", g: "fill", m: "measure", t: "label" };
+const PMAP = { e: "erase", w: "wall", u: "unknown" };
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Shift") shiftKey = true;
+  if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (ctrl && k === "y") { e.preventDefault(); redo(); return; }
+  if (ctrl) return;
+  if (KEYMAP[e.key] || KEYMAP[k]) { e.preventDefault(); selShape(KEYMAP[e.key] || KEYMAP[k]); }
+  else if (PMAP[k]) selPaint(PMAP[k]);
+  else if (k === "f") { fitView(); draw(); updateHud(); }
+  else if (e.key === "[") { brush = Math.max(1, brush - 1); syncBrush(); }
+  else if (e.key === "]") { brush = Math.min(60, brush + 1); syncBrush(); }
+  else if (e.key === "Escape") { preview = null; measureSeg = null; drawing = measuring = false; draw(); }
+});
+window.addEventListener("keyup", (e) => { if (e.key === "Shift") shiftKey = false; });
+function syncBrush() { document.getElementById("brush").value = brush; document.getElementById("brushVal").textContent = brush; if (mouse.inside) draw(); }
 
 // ---- file input + drag/drop ----
 let loadedFiles = null;
