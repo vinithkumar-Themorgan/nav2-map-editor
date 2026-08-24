@@ -7,9 +7,6 @@ areas — then download the edited `.pgm` + `.yaml` back out.
 
 **No install, no build, no server, nothing uploaded.** It's a single `index.html`.
 
-> Extracted from the **NETSCOUT‑08** AMR dashboard and released standalone so anyone
-> working with nav2 maps can fix them without RViz, GIMP, or Python scripts.
-
 ## ✨ Features
 
 - **Load** `map.pgm` + `map.yaml` (drag & drop or file picker). Supports binary
