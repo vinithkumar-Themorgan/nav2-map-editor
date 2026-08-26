@@ -113,6 +113,7 @@
         <button class="shape" data-shape="brush">✎<small>Brush</small></button>
         <button class="shape" data-shape="line">╱<small>Line</small></button>
         <button class="shape" data-shape="rect">▭<small>Rect</small></button>
+        <button class="shape" data-shape="circle">◯<small>Circle</small></button>
         <button class="shape" data-shape="fill">🪣<small>Fill</small></button>
         <button class="shape" data-shape="measure">📏<small>Measure</small></button>
         <button class="shape" data-shape="label">🏷<small>Label</small></button>
@@ -125,7 +126,7 @@
           <button class="paint" data-paint="wall">▉ Wall</button>
           <button class="paint" data-paint="unknown">▤ Unknown</button>
         </div>
-        <label class="chk"><input type="checkbox" id="filled" checked /> Filled rectangle</label>
+        <label class="chk"><input type="checkbox" id="filled" checked /> Filled shape (rect / circle)</label>
       </div>
 
       <label class="field" style="margin-top:12px">Brush / thickness <span id="brushVal">4</span> px
@@ -180,7 +181,7 @@
     <div class="card">
       <h3>Shortcuts</h3>
       <div class="muted">
-        <kbd>B</kbd> brush · <kbd>L</kbd> line · <kbd>R</kbd> rect · <kbd>G</kbd> fill ·
+        <kbd>B</kbd> brush · <kbd>L</kbd> line · <kbd>R</kbd> rect · <kbd>C</kbd> circle · <kbd>G</kbd> fill ·
         <kbd>M</kbd> measure · <kbd>T</kbd> label · <kbd>Space</kbd>/<kbd>P</kbd> pan<br>
         <kbd>E</kbd>/<kbd>W</kbd>/<kbd>U</kbd> paint free/wall/unknown ·
         <kbd>[</kbd><kbd>]</kbd> brush size · <kbd>Shift</kbd> snap line/square<br>
@@ -227,7 +228,7 @@ const curMeta = () => ({
 });
 function img2screen(x, y) { return { x: panX + (x + 0.5) * scale, y: panY + (y + 0.5) * scale }; }
 function screenToImg(cx, cy) { const r = cv.getBoundingClientRect(); return { x: Math.floor((cx - r.left - panX) / scale), y: Math.floor((cy - r.top - panY) / scale) }; }
-const usesRing = () => shape === "brush" || shape === "line" || shape === "rect";
+const usesRing = () => ["brush", "line", "rect", "circle"].includes(shape);
 function resize() { const r = stage.getBoundingClientRect(); cv.width = r.width; cv.height = r.height; draw(); }
 function fitView() { if (!W) return; const r = stage.getBoundingClientRect(); scale = Math.min(r.width / W, r.height / H) * 0.92; panX = (r.width - W * scale) / 2; panY = (r.height - H * scale) / 2; }
 
@@ -244,6 +245,7 @@ function draw() {
     const a = img2screen(preview.x0, preview.y0), b = img2screen(preview.x1, preview.y1);
     ctx.save(); ctx.strokeStyle = "rgba(132,194,38,.95)"; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
     if (preview.shape === "line") { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    else if (preview.shape === "circle") { const rad = Math.hypot(preview.x1 - preview.x0, preview.y1 - preview.y0) * scale; ctx.beginPath(); ctx.arc(a.x, a.y, rad, 0, 6.29); ctx.stroke(); }
     else ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     ctx.restore();
   }
@@ -337,6 +339,7 @@ function setCell(x, y, val) { if (x < 0 || y < 0 || x >= W || y >= H) return; co
 function stampDisc(cx, cy, val, rad) { for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) if (dx*dx + dy*dy <= rad*rad) setCell(cx + dx, cy + dy, val); }
 function rasterLine(x0, y0, x1, y1, val, thick) { const rad = Math.max(0, thick - 1), dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let err = dx - dy, x = x0, y = y0; for (;;) { stampDisc(x, y, val, rad); if (x === x1 && y === y1) break; const e2 = 2 * err; if (e2 > -dy) { err -= dy; x += sx; } if (e2 < dx) { err += dx; y += sy; } } }
 function rasterRect(x0, y0, x1, y1, val, thick, fill) { const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1); if (fill) { for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) setCell(x, y, val); return; } const t = Math.max(1, thick); for (let i = 0; i < t; i++) { for (let x = ax; x <= bx; x++) { setCell(x, ay + i, val); setCell(x, by - i, val); } for (let y = ay; y <= by; y++) { setCell(ax + i, y, val); setCell(bx - i, y, val); } } }
+function rasterCircle(cx, cy, radius, val, thick, fill) { const R = Math.round(radius); if (R < 0) return; const inner = fill ? -1 : R - Math.max(1, thick); for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const d = Math.sqrt(dx*dx + dy*dy); if (d <= R + 0.5 && d >= inner) setCell(cx + dx, cy + dy, val); } }
 // class of a grayscale value: nearest of wall(0)/unknown(205)/free(254)
 function classOf(v) { const d = [[Math.abs(v - 0), 0], [Math.abs(v - 205), 205], [Math.abs(v - 254), 254]]; d.sort((a, b) => a[0] - b[0]); return d[0][1]; }
 function floodFill(sx, sy) {
@@ -392,7 +395,7 @@ function updateHud(x, y) { if (!W) return; let t = `${W}×${H} px · ${(meta.res
 function selShape(s) {
   shape = s; measureSeg = measureSeg && s === "measure" ? measureSeg : (s === "measure" ? measureSeg : null);
   document.querySelectorAll(".shape").forEach((b) => b.classList.toggle("active", b.dataset.shape === s));
-  document.getElementById("paintRow").style.display = ["brush", "line", "rect", "fill"].includes(s) ? "block" : "none";
+  document.getElementById("paintRow").style.display = ["brush", "line", "rect", "circle", "fill"].includes(s) ? "block" : "none";
   cv.style.cursor = s === "pan" ? "grab" : (usesRing() ? "none" : "");
   draw();
 }
@@ -421,7 +424,7 @@ cv.addEventListener("pointermove", (e) => {
   if (panning) { panX = e.clientX - panStart.x; panY = e.clientY - panStart.y; draw(); return; }
   if (painting) { stampDisc(p.x, p.y, PV[paint], brush - 1); draw(); updateHud(p.x, p.y); return; }
   if (measuring) { measureSeg.x1 = p.x; measureSeg.y1 = p.y; draw(); updateHud(p.x, p.y); return; }
-  if (drawing) { let end = { x: p.x, y: p.y }; if (shiftKey) end = snap(shapeStart.x, shapeStart.y, p.x, p.y, shape === "rect"); preview = { shape, x0: shapeStart.x, y0: shapeStart.y, x1: end.x, y1: end.y }; draw(); updateHud(p.x, p.y); return; }
+  if (drawing) { let end = { x: p.x, y: p.y }; if (shiftKey && shape !== "circle") end = snap(shapeStart.x, shapeStart.y, p.x, p.y, shape === "rect"); preview = { shape, x0: shapeStart.x, y0: shapeStart.y, x1: end.x, y1: end.y }; draw(); updateHud(p.x, p.y); return; }
   draw(); updateHud(p.x, p.y);
 });
 cv.addEventListener("pointerleave", () => { mouse.inside = false; draw(); });
@@ -429,7 +432,7 @@ function endPointer() {
   if (panning) { panning = false; cv.style.cursor = shape === "pan" ? "grab" : (usesRing() ? "none" : ""); }
   if (painting) { painting = false; commitStroke(); }
   if (measuring) measuring = false;
-  if (drawing) { drawing = false; const p = preview; preview = null; stroke = new Map(); const val = PV[paint]; if (p) { if (p.shape === "line") rasterLine(p.x0, p.y0, p.x1, p.y1, val, brush); else rasterRect(p.x0, p.y0, p.x1, p.y1, val, brush, filled); } commitStroke(); draw(); }
+  if (drawing) { drawing = false; const p = preview; preview = null; stroke = new Map(); const val = PV[paint]; if (p) { if (p.shape === "line") rasterLine(p.x0, p.y0, p.x1, p.y1, val, brush); else if (p.shape === "circle") rasterCircle(p.x0, p.y0, Math.hypot(p.x1 - p.x0, p.y1 - p.y0), val, brush, filled); else rasterRect(p.x0, p.y0, p.x1, p.y1, val, brush, filled); } commitStroke(); draw(); }
 }
 cv.addEventListener("pointerup", endPointer);
 cv.addEventListener("pointercancel", endPointer);
@@ -450,7 +453,7 @@ document.getElementById("zin").addEventListener("click", () => zoomAt(cv.width /
 document.getElementById("zout").addEventListener("click", () => zoomAt(cv.width / 2, cv.height / 2, 0.8));
 document.getElementById("zfit").addEventListener("click", () => { fitView(); draw(); updateHud(); });
 
-const KEYMAP = { p: "pan", " ": "pan", b: "brush", l: "line", r: "rect", g: "fill", m: "measure", t: "label" };
+const KEYMAP = { p: "pan", " ": "pan", b: "brush", l: "line", r: "rect", c: "circle", g: "fill", m: "measure", t: "label" };
 const PMAP = { e: "erase", w: "wall", u: "unknown" };
 window.addEventListener("keydown", (e) => {
   if (e.key === "Shift") shiftKey = true;
